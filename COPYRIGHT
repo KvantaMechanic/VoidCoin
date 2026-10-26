@@ -1,0 +1,38 @@
+VoidCoin Core
+Copyright (c) 2026 VoidCoin Development Team (VoidHash-Crypto)
+
+TRADEMARKS
+The following names and identifiers are trademarks of VoidCoin,
+protecting brand and naming conventions only:
+  - VoidCoin™
+  - VOID™
+  - Quantum Threat Clock™
+  - Void Inheritance Protocol™
+  - Void Proof of Existence™
+  - vqr1™ (address prefix/naming convention)
+  - vqt1™ (address prefix/naming convention)
+  - P2QR-TIMELOCK™ (name of VoidCoin's timelock implementation)
+
+Trademark protection covers names and branding only. It does not claim
+ownership of the underlying ML-DSA-87, P2QR, or post-quantum cryptography
+standards. ML-DSA-87 is standardized by NIST in FIPS 204; the reference
+implementation bundled with VoidCoin Core is pq-crystals/CRYSTALS-Dilithium
+(public domain / Apache-2.0 / GPL-2.0). The Pay-to-Quantum-Resistant output
+design follows BIP-360. See ATTRIBUTIONS.md for full upstream credits.
+
+ORIGINAL TECHNICAL CONTRIBUTIONS
+The following are original contributions by the VoidCoin Development Team:
+  - P2QR-TIMELOCK consensus implementation (VCIP-1)
+    The first native quantum-resistant time-locked output type on any
+    proof-of-work blockchain. Timestamped: 2026-07-03.
+    Reference: https://github.com/VoidHash-Crypto/VoidCoin-Core/blob/feature/p2qr-timelock/VCIP-1.md
+  - Quantum Threat Clock (original implementation and UI)
+  - Void Inheritance Protocol (original implementation and UI)
+  - Void Proof of Existence (original implementation and UI)
+
+VoidCoin Core protocol code is distributed under the MIT License.
+See COPYING for the full license text.
+
+Contact: voidhash@outlook.com
+Website: https://www.void-coin.net
+GitHub:  https://github.com/VoidHash-Crypto/VoidCoin-Core

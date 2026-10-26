@@ -1,0 +1,33 @@
+# /etc/conf.d/voidcoind: config file for /etc/init.d/voidcoind
+
+# Config file location
+#VOIDCOIND_CONFIGFILE="/etc/voidcoin/voidcoin.conf"
+
+# What directory to write pidfile to?  (created and owned by $VOIDCOIND_USER)
+#VOIDCOIND_PIDDIR="/var/run/voidcoind"
+
+# What filename to give the pidfile
+#VOIDCOIND_PIDFILE="${VOIDCOIND_PIDDIR}/voidcoind.pid"
+
+# Where to write voidcoind data (be mindful that the blockchain is large)
+#VOIDCOIND_DATADIR="/var/lib/voidcoind"
+
+# User and group to own voidcoind process
+#VOIDCOIND_USER="voidcoin"
+#VOIDCOIND_GROUP="voidcoin"
+
+# Path to voidcoind executable
+#VOIDCOIND_BIN="/usr/bin/voidcoind"
+
+# Nice value to run voidcoind under
+#VOIDCOIND_NICE=0
+
+# Additional options (avoid -conf and -datadir, use flags above)
+#VOIDCOIND_OPTS=""
+
+# The timeout in seconds OpenRC will wait for voidcoind to terminate
+# after a SIGTERM has been raised.
+# Note that this will be mapped as argument to start-stop-daemon's
+# '--retry' option, which means you can specify a retry schedule
+# here. For more information see man 8 start-stop-daemon.
+VOIDCOIND_SIGTERM_TIMEOUT=600

@@ -1,0 +1,212 @@
+name: Build Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  get-version:
+    name: Get Version
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get version
+        id: version
+        run: |
+          MAJOR=$(grep "set(CLIENT_VERSION_MAJOR" CMakeLists.txt | grep -o '[0-9]*')
+          MINOR=$(grep "set(CLIENT_VERSION_MINOR" CMakeLists.txt | grep -o '[0-9]*')
+          BUILD=$(grep "set(CLIENT_VERSION_BUILD" CMakeLists.txt | grep -o '[0-9]*')
+          echo "version=${MAJOR}.${MINOR}.${BUILD}" >> $GITHUB_OUTPUT
+
+  build-linux:
+    name: Linux x86_64
+    runs-on: ubuntu-22.04
+    needs: get-version
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake pkg-config \
+            libboost-all-dev libssl-dev libevent-dev \
+            libzmq3-dev libminiupnpc-dev libnatpmp-dev \
+            libsqlite3-dev qtbase5-dev qttools5-dev \
+            qttools5-dev-tools libqt5svg5-dev libqrencode-dev \
+            dpkg-dev fakeroot
+
+      - name: Build CLI
+        run: |
+          cmake -B build-cli -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF \
+            -DWITH_ZMQ=ON -DWITH_MINIUPNPC=ON -DWITH_NATPMP=ON
+          cmake --build build-cli -j$(nproc) 2>&1 | tee /tmp/build-cli.log || (grep -E "error:" /tmp/build-cli.log | grep -v "gmake\|warning" | head -30 && exit 1)
+          echo "=== Build output ==="
+          find build-cli/src -maxdepth 1 -type f -executable | head -20
+
+      - name: Build Qt wallet
+        run: |
+          cmake -B build-qt -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=ON \
+            -DWITH_ZMQ=ON -DWITH_MINIUPNPC=ON -DWITH_NATPMP=ON
+          cmake --build build-qt -j$(nproc) || cmake --build build-qt -j1 2>&1 | grep -E "^.*error:" | grep -v "gmake" | head -20
+
+      - name: Package Linux CLI tar.gz
+        run: |
+          VERSION=${{ needs.get-version.outputs.version }}
+          DIRNAME="VoidCoin-${VERSION}-Linux"
+          mkdir -p dist/${DIRNAME}
+          # Find binaries - they may be in src/ or bin/
+          for bin in voidcoind voidcoin-cli voidcoin-tx voidcoin-util voidcoin-wallet; do
+            found=$(find build-cli -name "$bin" -type f | head -1)
+            if [ -n "$found" ]; then
+              cp "$found" dist/${DIRNAME}/
+            else
+              echo "WARNING: $bin not found"
+            fi
+          done
+          tar czf dist/VoidCoin-${VERSION}-Linux-x86_64.tar.gz -C dist ${DIRNAME}
+
+      - name: Package Linux Qt tar.gz
+        run: |
+          VERSION=${{ needs.get-version.outputs.version }}
+          DIRNAME="VoidCoin-${VERSION}-Linux-Qt"
+          mkdir -p dist-qt/${DIRNAME}
+          find build-qt -name "voidcoin-qt" -type f | head -1 | xargs -I{} cp {} dist-qt/${DIRNAME}/
+          find build-cli -name "voidcoind" -type f | head -1 | xargs -I{} cp {} dist-qt/${DIRNAME}/
+          find build-cli -name "voidcoin-cli" -type f | head -1 | xargs -I{} cp {} dist-qt/${DIRNAME}/
+          tar czf dist/VoidCoin-${VERSION}-Linux-Qt-x86_64.tar.gz -C dist-qt ${DIRNAME}
+
+      - name: Build .deb package
+        run: |
+          VERSION=${{ needs.get-version.outputs.version }}
+          PKGDIR="voidcoin_${VERSION}_amd64"
+          mkdir -p ${PKGDIR}/DEBIAN
+          mkdir -p ${PKGDIR}/usr/bin
+          mkdir -p ${PKGDIR}/usr/share/applications
+          mkdir -p ${PKGDIR}/usr/share/pixmaps
+          mkdir -p ${PKGDIR}/usr/share/doc/voidcoin
+          find build-qt -name 'voidcoin-qt' -type f | head -1 | xargs -I{} cp {} ${PKGDIR}/usr/bin/
+          for bin in voidcoind voidcoin-cli voidcoin-wallet; do
+            found=$(find build-cli -name "$bin" -type f | head -1)
+            if [ -n "$found" ]; then cp "$found" ${PKGDIR}/usr/bin/; fi
+          done
+          cp share/pixmaps/voidcoin128.png ${PKGDIR}/usr/share/pixmaps/voidcoin.png
+          cat > ${PKGDIR}/usr/share/applications/voidcoin-qt.desktop << EOF
+          [Desktop Entry]
+          Name=VoidCoin Core
+          Comment=VoidCoin quantum-resistant blockchain wallet
+          Exec=voidcoin-qt %u
+          Icon=voidcoin
+          Terminal=false
+          Type=Application
+          Categories=Finance;Network;
+          MimeType=x-scheme-handler/voidcoin;
+          StartupWMClass=VoidCoin-qt
+          EOF
+          cp COPYING ${PKGDIR}/usr/share/doc/voidcoin/copyright
+          cat > ${PKGDIR}/DEBIAN/control << EOF
+          Package: voidcoin
+          Version: ${VERSION}
+          Architecture: amd64
+          Maintainer: VoidCoin Team <voidhash@outlook.com>
+          Depends: libssl3, libevent-2.1-7, libzmq5, libminiupnpc17, libnatpmp1, libsqlite3-0, libqt5gui5, libqt5widgets5, libqt5network5
+          Homepage: https://www.void-coin.net
+          Description: VoidCoin Core - Quantum-resistant proof-of-work blockchain
+           VoidCoin (VOID) is a SHA256d proof-of-work cryptocurrency with native
+           quantum-resistant ML-DSA-87 addresses.
+          EOF
+          fakeroot dpkg-deb --build ${PKGDIR}
+          mv ${PKGDIR}.deb dist/VoidCoin-${VERSION}-linux-amd64.deb
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: dist/VoidCoin-*
+
+  build-windows:
+    name: Windows x86_64 (depends + Qt)
+    runs-on: ubuntu-22.04
+    needs: get-version
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cross-compile dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake curl make patch bison g++ pkgconf python3 xz-utils g++-mingw-w64-x86-64 mingw-w64 nsis
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix 2>/dev/null || true
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix 2>/dev/null || true
+      - name: Build depends for Windows
+        run: |
+          cd depends
+          make HOST=x86_64-w64-mingw32 -j$(nproc) CXX_STD=c++20
+        timeout-minutes: 90
+      - name: Build Windows binaries
+        run: |
+          cmake -B build-win \
+            --toolchain depends/x86_64-w64-mingw32/toolchain.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=20 \
+            -DCMAKE_CXX_EXTENSIONS=OFF \
+            -DBUILD_GUI=ON \
+            -DCMAKE_CXX_FLAGS="-std=c++20 -mno-avx" \
+            -DWITH_SIMD=OFF
+          cmake --build build-win -j1 2>&1 | tail -50
+          echo "=== All exe files ==="
+          find build-win -name "*.exe" -ls
+      - name: Package Windows CLI zip
+        run: |
+          VERSION=${{ needs.get-version.outputs.version }}
+          DIRNAME="VoidCoin-${VERSION}-Windows"
+          mkdir -p dist-win/${DIRNAME}
+          for bin in voidcoind voidcoin-cli voidcoin-tx voidcoin-wallet voidcoin-util; do
+            found=$(find build-win -name "${bin}.exe" | head -1)
+            if [ -n "$found" ]; then cp "$found" dist-win/${DIRNAME}/${bin}.exe; fi
+          done
+          ls -la dist-win/${DIRNAME}/
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cd dist-win && zip -r "$GITHUB_WORKSPACE/dist/VoidCoin-${VERSION}-Windows-x86_64.zip" ${DIRNAME}/
+      - name: Package Windows Qt zip
+        run: |
+          VERSION=${{ needs.get-version.outputs.version }}
+          DIRNAME="VoidCoin-${VERSION}-Windows-Qt"
+          mkdir -p dist-win-qt/${DIRNAME}
+          for bin in voidcoin-qt voidcoind voidcoin-cli; do
+            found=$(find build-win -name "${bin}.exe" | head -1)
+            if [ -n "$found" ]; then cp "$found" dist-win-qt/${DIRNAME}/${bin}.exe; fi
+          done
+          ls -la dist-win-qt/${DIRNAME}/
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cd dist-win-qt && zip -r "$GITHUB_WORKSPACE/dist/VoidCoin-${VERSION}-Windows-Qt-x86_64.zip" ${DIRNAME}/
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: dist/VoidCoin-*.zip
+
+  release:
+    name: Create GitHub Release
+    needs: [get-version, build-linux, build-windows]
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: VoidCoin Core v${{ needs.get-version.outputs.version }}
+          body: "VoidCoin Core v${{ needs.get-version.outputs.version }} — https://www.void-coin.net"
+          files: |
+            artifacts/linux-binaries/VoidCoin-*
+            artifacts/windows-binaries/VoidCoin-*
+          draft: false
+          prerelease: false

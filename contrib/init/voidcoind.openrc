@@ -1,0 +1,93 @@
+#!/sbin/openrc-run
+
+# backward compatibility for existing gentoo layout 
+#
+if [ -d "/var/lib/voidcoin/.voidcoin" ]; then
+	VOIDCOIND_DEFAULT_DATADIR="/var/lib/voidcoin/.voidcoin"
+else
+	VOIDCOIND_DEFAULT_DATADIR="/var/lib/voidcoind"
+fi
+
+VOIDCOIND_CONFIGFILE=${VOIDCOIND_CONFIGFILE:-/etc/voidcoin/voidcoin.conf}
+VOIDCOIND_PIDDIR=${VOIDCOIND_PIDDIR:-/var/run/voidcoind}
+VOIDCOIND_PIDFILE=${VOIDCOIND_PIDFILE:-${VOIDCOIND_PIDDIR}/voidcoind.pid}
+VOIDCOIND_DATADIR=${VOIDCOIND_DATADIR:-${VOIDCOIND_DEFAULT_DATADIR}}
+VOIDCOIND_USER=${VOIDCOIND_USER:-${VOIDCOIN_USER:-voidcoin}}
+VOIDCOIND_GROUP=${VOIDCOIND_GROUP:-voidcoin}
+VOIDCOIND_BIN=${VOIDCOIND_BIN:-/usr/bin/voidcoind}
+VOIDCOIND_NICE=${VOIDCOIND_NICE:-${NICELEVEL:-0}}
+VOIDCOIND_OPTS="${VOIDCOIND_OPTS:-${VOIDCOIN_OPTS}}"
+
+name="VoidCoin Core Daemon"
+description="VoidCoin cryptocurrency P2P network daemon"
+
+command="/usr/bin/voidcoind"
+command_args="-pid=\"${VOIDCOIND_PIDFILE}\" \
+		-conf=\"${VOIDCOIND_CONFIGFILE}\" \
+		-datadir=\"${VOIDCOIND_DATADIR}\" \
+		-daemon \
+		${VOIDCOIND_OPTS}"
+
+required_files="${VOIDCOIND_CONFIGFILE}"
+start_stop_daemon_args="-u ${VOIDCOIND_USER} \
+			-N ${VOIDCOIND_NICE} -w 2000"
+pidfile="${VOIDCOIND_PIDFILE}"
+
+# The retry schedule to use when stopping the daemon. Could be either
+# a timeout in seconds or multiple signal/timeout pairs (like
+# "SIGKILL/180 SIGTERM/300")
+retry="${VOIDCOIND_SIGTERM_TIMEOUT}"
+
+depend() {
+	need localmount net
+}
+
+# verify
+# 1) that the datadir exists and is writable (or create it)
+# 2) that a directory for the pid exists and is writable
+# 3) ownership and permissions on the config file
+start_pre() {
+	checkpath \
+	-d \
+	--mode 0750 \
+	--owner "${VOIDCOIND_USER}:${VOIDCOIND_GROUP}" \
+	"${VOIDCOIND_DATADIR}"
+
+	checkpath \
+	-d \
+	--mode 0755 \
+	--owner "${VOIDCOIND_USER}:${VOIDCOIND_GROUP}" \
+	"${VOIDCOIND_PIDDIR}"
+
+	checkpath -f \
+	-o "${VOIDCOIND_USER}:${VOIDCOIND_GROUP}" \
+	-m 0660 \
+	"${VOIDCOIND_CONFIGFILE}"
+
+	checkconfig || return 1
+}
+
+checkconfig()
+{
+	if grep -qs '^rpcuser=' "${VOIDCOIND_CONFIGFILE}" && \
+		! grep -qs '^rpcpassword=' "${VOIDCOIND_CONFIGFILE}" ; then
+		eerror ""
+		eerror "ERROR: You must set a secure rpcpassword to run voidcoind."
+		eerror "The setting must appear in ${VOIDCOIND_CONFIGFILE}"
+		eerror ""
+		eerror "This password is security critical to securing wallets "
+		eerror "and must not be the same as the rpcuser setting."
+		eerror "You can generate a suitable random password using the following "
+		eerror "command from the shell:"
+		eerror ""
+		eerror "bash -c 'tr -dc a-zA-Z0-9 < /dev/urandom | head -c32 && echo'"
+		eerror ""
+		eerror "It is recommended that you also set alertnotify so you are "
+		eerror "notified of problems:"
+		eerror ""
+		eerror "ie: alertnotify=echo %%s | mail -s \"VoidCoin Alert\"" \
+			"admin@foo.com"
+		eerror ""
+		return 1
+	fi
+}
